@@ -11,8 +11,8 @@ class Patient(Base):
 
     id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id             = Column(UUID(as_uuid=True), nullable=False, unique=True, index=True)
-    birth_date          = Column(Date, nullable=False)
-    sex                 = Column(String(10), nullable=False)
+    birth_date          = Column(Date, nullable=True)
+    sex                 = Column(String(10), nullable=True)
     diagnosis_category  = Column(String(100), nullable=True)
     pseudonym_id        = Column(String(50), unique=True, nullable=False)
     created_at          = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

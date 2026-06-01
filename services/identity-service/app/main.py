@@ -2,9 +2,13 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+import json
+import logging
 import uuid
 import random
 import string
+
+import redis as redis_lib
 
 from app.database import get_db, engine
 from app.models import Base, User, RefreshToken, InvitationCode
@@ -14,6 +18,16 @@ from app.schemas import (
 )
 from app.auth import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+_redis = redis_lib.from_url(settings.redis_url, decode_responses=True)
+
+
+def _publish_event(payload: dict) -> None:
+    try:
+        _redis.publish("identity.events", json.dumps(payload))
+    except Exception as e:
+        logger.warning("No se pudo publicar evento en Redis: %s", e)
 
 
 def _generate_code(db: Session) -> str:
@@ -140,6 +154,14 @@ def register_with_code(payload: RegisterWithCode, db: Session = Depends(get_db))
     inv.consumed_by_user_id = user.id
     db.commit()
     db.refresh(user)
+
+    _publish_event({
+        "event":          "PatientRegisteredWithInvitation",
+        "user_id":        str(user.id),
+        "clinician_id":   str(inv.created_by_clinician_id),
+        "pre_filled_data": inv.pre_filled_data,
+    })
+
     return user
 
 

@@ -19,10 +19,16 @@ from app.schemas import (
     AttemptCreate, AttemptResponse,
 )
 from app.config import settings
+from app.events import start_listener
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="clinical-service", version="1.0.0", root_path="/api/clinical")
+
+
+@app.on_event("startup")
+def startup_event():
+    start_listener()
 
 
 def get_current_user_id(authorization: str = Header(...)) -> str:
