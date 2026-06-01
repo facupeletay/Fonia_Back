@@ -1,0 +1,191 @@
+services:
+
+  # ── API Gateway ──────────────────────────────────────────
+  api-gateway:
+    image: traefik:v3.0
+    container_name: pfi-gateway
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # ── Infraestructura compartida ───────────────────────────
+  postgres:
+    image: postgres:16
+    container_name: pfi-postgres
+    environment:
+      POSTGRES_USER: pfi_admin
+      POSTGRES_PASSWORD: pfi_password
+      POSTGRES_DB: pfi
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pfi_admin -d pfi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: pfi-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    container_name: pfi-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: pfi_minio
+      MINIO_ROOT_PASSWORD: pfi_minio_password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── pgAdmin (desarrollo) ─────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pfi-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: facundopeletay46@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+  # ── Microservicios (esqueletos — se activan de a uno) ────
+  identity-service:
+    build: ./services/identity-service
+    container_name: pfi-identity
+    environment:
+      DATABASE_URL: postgresql://identity_user:identity_pass@postgres:5432/pfi
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.identity.rule=PathPrefix(`/api/identity`)"
+      - "traefik.http.routers.identity.entrypoints=web"
+    profiles:
+      - services
+
+  clinical-service:
+    build: ./services/clinical-service
+    container_name: pfi-clinical
+    environment:
+      DATABASE_URL: postgresql://clinical_user:clinical_pass@postgres:5432/pfi
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.clinical.rule=PathPrefix(`/api/clinical`)"
+      - "traefik.http.routers.clinical.entrypoints=web"
+    profiles:
+      - services
+
+  scoring-service:
+    build: ./services/scoring-service
+    container_name: pfi-scoring
+    environment:
+      DATABASE_URL: postgresql://scoring_user:scoring_pass@postgres:5432/pfi
+      REDIS_URL: redis://redis:6379/0
+      MINIO_URL: http://minio:9000
+      MINIO_ACCESS_KEY: pfi_minio
+      MINIO_SECRET_KEY: pfi_minio_password
+    ports:
+      - "8003:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.scoring.rule=PathPrefix(`/api/scoring`)"
+      - "traefik.http.routers.scoring.entrypoints=web"
+    profiles:
+      - services
+
+  analytics-service:
+    build: ./services/analytics-service
+    container_name: pfi-analytics
+    environment:
+      DATABASE_URL: postgresql://analytics_user:analytics_pass@postgres:5432/pfi
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8004:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.analytics.rule=PathPrefix(`/api/analytics`)"
+      - "traefik.http.routers.analytics.entrypoints=web"
+    profiles:
+      - services
+
+  mlops-service:
+    build: ./services/mlops-service
+    container_name: pfi-mlops
+    environment:
+      DATABASE_URL: postgresql://mlops_user:mlops_pass@postgres:5432/pfi
+      MINIO_URL: http://minio:9000
+      MINIO_ACCESS_KEY: pfi_minio
+      MINIO_SECRET_KEY: pfi_minio_password
+    ports:
+      - "8005:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mlops.rule=PathPrefix(`/api/mlops`)"
+      - "traefik.http.routers.mlops.entrypoints=web"
+    profiles:
+      - services
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
