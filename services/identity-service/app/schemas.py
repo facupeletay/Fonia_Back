@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 from datetime import datetime
 
@@ -28,3 +28,34 @@ class TokenResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+# ── Invitation codes ──────────────────────────────────────────────────────────
+
+class InvitationCreate(BaseModel):
+    clinician_id:    UUID
+    pre_filled_data: Optional[Dict[str, Any]] = None
+    expiry_days:     int = 7
+
+class InvitationResponse(BaseModel):
+    id:                      UUID
+    code:                    str
+    created_by_clinician_id: UUID
+    pre_filled_data:         Optional[Dict[str, Any]]
+    expires_at:              datetime
+    consumed_at:             Optional[datetime]
+    consumed_by_user_id:     Optional[UUID]
+    status:                  str
+    created_at:              datetime
+    model_config = {"from_attributes": True}
+
+class InvitationValidateResponse(BaseModel):
+    code:            str
+    pre_filled_data: Optional[Dict[str, Any]]
+    expires_at:      datetime
+
+class RegisterWithCode(BaseModel):
+    email:    EmailStr
+    password: str
+    code:     str
+    role:     str = "patient"
