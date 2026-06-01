@@ -163,6 +163,27 @@ services:
     profiles:
       - services
 
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: pfi-label-studio
+    environment:
+      LABEL_STUDIO_HOST: http://localhost:8090
+      DJANGO_DB: default
+      POSTGRE_NAME: pfi
+      POSTGRE_USER: mlops_user
+      POSTGRE_PASSWORD: mlops_pass
+      POSTGRE_HOST: postgres
+      POSTGRE_PORT: 5432
+    ports:
+      - "8090:8080"
+    volumes:
+      - label_studio_data:/label-studio/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - services
+
   mlops-service:
     build: ./services/mlops-service
     container_name: pfi-mlops
@@ -189,3 +210,4 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  label_studio_data:
