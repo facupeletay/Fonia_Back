@@ -6,6 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PFI (Proyecto Final Integrador) is a speech-therapy platform built as microservices using FastAPI + PostgreSQL, orchestrated via Docker Compose with Traefik as the API gateway.
 
+> **Target architecture (v2.1):** the canonical design reference is
+> `docs/Arquitectura-Logica.md` (Julio 2026), with C4 / sequence / class / ER diagrams
+> under `docs/`. Key differences from the *currently implemented* code, tracked as the
+> forward-looking design:
+> - **Annotation subsystem re-engineered:** Label Studio is dropped in favor of an
+>   **own annotation module** (UI in the React SPA + API in `mlops-service`). The
+>   `docker-compose.yml` still ships the Label Studio container; retiring it is part of
+>   this change.
+> - **JWT** moves from **HS256 shared secret** (current code) to **RS256 + JWKS**
+>   (offline verification via the identity-service public key).
+> - **scoring-service** becomes an ML pipeline: `scoring-api` (FastAPI + SSE) +
+>   `scoring-worker` (Celery) running ffmpeg → VAD → MFA/CTC alignment → GOP-CTC over
+>   wav2vec2-XLSR-53 → phoneme classification.
+> - **analytics-service** adds consolidated metrics, alerts and notifications;
+>   **mlops-service** adds MLflow (registry) + DVC (dataset versioning).
+> - **Planned event contract:** `AttemptCreated`, `AttemptScored`, `AttemptFailed`,
+>   `PrescriptionUpdated`, `AlertRaised`, `ModelPromoted`, `CorpusConsentRevoked`.
+>
+> Only `PatientRegisteredWithInvitation` (identity → clinical) is implemented today; the
+> rest of the above is design, not code.
+
 ## Running the Infrastructure
 
 ```bash
@@ -55,7 +76,7 @@ OpenAPI docs for any running service: `http://localhost:<port>/docs`
 | PostgreSQL 16 | Single DB instance, one schema per service |
 | Redis 7 | Pub/sub event bus + shared cache |
 | MinIO | Object storage for audio files and ML model artifacts |
-| Label Studio | Phonemic labeling of audio data for the ML pipeline |
+| Label Studio | Phonemic labeling of audio data for the ML pipeline *(exploratory phase; being retired in the v2.1 re-engineering — replaced by the own annotation module in `mlops-service` + SPA)* |
 
 ### Service implementation status
 | Service | Status | Port |

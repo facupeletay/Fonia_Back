@@ -2,6 +2,15 @@
 
 Plataforma de terapia del habla basada en microservicios (FastAPI + PostgreSQL), orquestada con Docker Compose y Traefik como API gateway.
 
+> 📐 **Arquitectura:** el diseño de referencia del sistema (versión **2.1**, Julio 2026)
+> está documentado en [`docs/Arquitectura-Logica.md`](docs/Arquitectura-Logica.md), con los
+> diagramas C4, de secuencia, de clases y ER en la carpeta [`docs/`](docs/).
+>
+> 🔁 **Reingeniería v2.1:** el subsistema de anotación deja de usar **Label Studio** y pasa
+> a un **módulo de anotación propio** (UI en la SPA + API en `mlops-service`). El
+> `docker-compose.yml` aún incluye el contenedor de Label Studio; su retiro es parte de
+> esta reingeniería.
+
 ## Requisitos previos
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado y corriendo
@@ -49,7 +58,7 @@ docker compose down
 | Dashboard Traefik | http://localhost:8080 |
 | identity-service (directo) | http://localhost:8001 |
 | clinical-service (directo) | http://localhost:8002 |
-| Label Studio | http://localhost:8090 |
+| Label Studio *(a retirar — reingeniería v2.1)* | http://localhost:8090 |
 | pgAdmin | http://localhost:5050 |
 | MinIO consola | http://localhost:9001 |
 

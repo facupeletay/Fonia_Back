@@ -46,7 +46,7 @@ como un microservicio independiente con su propio esquema de base de datos:
 | `clinical-service` | Historia clínica, planes de terapia, ejercicios y sesiones | Implementado |
 | `scoring-service` | Evaluación automática de la pronunciación (fonémica) | Esqueleto |
 | `analytics-service` | Métricas de progreso y reportes | Esqueleto |
-| `mlops-service` | Ciclo de vida de los modelos de ML y etiquetado de datos | Esqueleto |
+| `mlops-service` | Ciclo de vida de los modelos de ML (MLflow + DVC) y **anotación propia** del corpus | Esqueleto |
 
 ### 1.3. Definiciones, acrónimos y abreviaturas
 
@@ -96,10 +96,17 @@ compartida, evitando un punto único de fallo por proxy de autenticación.
 | **Paciente** (`patient`) | Usuario que ejecuta los ejercicios; rol por defecto | `models.py` (`role default="patient"`) |
 | **Clínico** (`clinician`) | Profesional que crea invitaciones, planes y ejercicios | Flujo de invitaciones y relaciones clínicas |
 
+> **Roles objetivo (arquitectura v2.1, no implementados):** además de los anteriores, el
+> modelo RBAC previsto incorpora `guardian` (tutor de paciente menor, firma
+> consentimientos), `annotator` (accede al módulo de anotación del corpus) y `admin`
+> (gestión de usuarios y catálogo). Ver [`Arquitectura-Logica.md` §7.2](Arquitectura-Logica.md).
+
 ### 2.3. Restricciones de diseño
 
 - El backend está construido sobre **FastAPI 0.115**, **SQLAlchemy 2.0** y **PostgreSQL 16**.
 - Los tokens de acceso usan el algoritmo **HS256** con una vida útil de **15 minutos**.
+  *(Arquitectura objetivo v2.1: migración a **RS256 + JWKS** para verificación offline
+  sin clave compartida; ver `Arquitectura-Logica.md` §3.1.)*
 - El almacenamiento de objetos (audio, artefactos de modelos) se delega a **MinIO**
   (compatible con la API S3).
 - La creación del esquema se realiza en el arranque vía `Base.metadata.create_all()`;
@@ -168,16 +175,45 @@ compartida, evitando un punto único de fallo por proxy de autenticación.
 
 ### 3.4. Módulos previstos (no implementados)
 
-Los siguientes requerimientos se derivan de la arquitectura declarada (esquemas de base
-de datos preaprovisionados, servicios en estado *esqueleto* y objetivo del dominio) y
-constituyen el **backlog** de la plataforma.
+Los siguientes requerimientos se derivan de la **arquitectura objetivo v2.1**
+([`Arquitectura-Logica.md`](Arquitectura-Logica.md)) — esquemas de base de datos
+preaprovisionados, servicios en estado *esqueleto* y dominio del proyecto — y constituyen
+el **backlog** de la plataforma. Ninguno está implementado.
+
+**Scoring (`scoring-service`)**
 
 | ID | Requerimiento | Prioridad | Origen |
 |----|---------------|-----------|--------|
-| **RF-SC-001** | El `scoring-service` debe evaluar automáticamente la pronunciación de un intento de audio, produciendo una puntuación fonémica. | Should | Esquema `scoring`, dominio del proyecto |
-| **RF-SC-002** | El `scoring-service` debe consumir los audios almacenados en MinIO referenciados por la clave del intento. | Should | Config MinIO (`docker-compose.yml:127-129`) |
-| **RF-AN-001** | El `analytics-service` debe consolidar métricas de progreso terapéutico por paciente y por plan. | Should | Esquema `analytics`, estado *esqueleto* |
-| **RF-ML-001** | El `mlops-service` debe gestionar el ciclo de vida de los modelos de evaluación y el etiquetado fonémico de datos mediante Label Studio. | Should | `docker-compose.yml:166-185`, esquema `mlops` |
+| **RF-SC-001** | El `scoring-service` debe evaluar automáticamente la pronunciación de un intento de audio, produciendo una puntuación fonémica global y por fonema. | Should | Esquema `scoring`, dominio del proyecto |
+| **RF-SC-002** | El `scoring-service` debe consumir los audios almacenados en MinIO referenciados por la clave del intento. | Should | Config MinIO (`docker-compose.yml`) |
+| **RF-SC-003** | El pipeline debe convertir el audio (WebM→WAV 16 kHz mono con ffmpeg), validar calidad (duración, RMS, SNR) y aplicar VAD antes de la evaluación. | Should | Arq. v2.1 §4.2 |
+| **RF-SC-004** | El scoring debe basarse en **Forced Alignment (MFA 3.x)** y **GOP-CTC** sobre wav2vec2-XLSR-53 español, con clasificación correcto/aproximación/incorrecto. | Should | Arq. v2.1 §4.1 |
+| **RF-SC-005** | El servicio debe emitir feedback en vivo al paciente vía **SSE** (`aligned`, `scored_phoneme`, `final`) con objetivo de latencia < 5 s end-to-end. | Should | Arq. v2.1 §2.4, §4.5 |
+| **RF-SC-006** | El worker debe ser resiliente: reintentos con backoff, *dead-letter* (`failed_jobs`) e idempotencia (`processed_events`). | Should | Arq. v2.1 §4.3 |
+
+**Analytics (`analytics-service`)**
+
+| ID | Requerimiento | Prioridad | Origen |
+|----|---------------|-----------|--------|
+| **RF-AN-001** | El `analytics-service` debe consolidar métricas de progreso terapéutico por paciente, fonema y período. | Should | Esquema `analytics`, estado *esqueleto* |
+| **RF-AN-002** | El servicio debe detectar tendencias (mejora/estancamiento/regresión) y disparar **alertas tempranas** al clínico según reglas configurables. | Should | Arq. v2.1 §3.4 |
+| **RF-AN-003** | El servicio debe enviar **notificaciones** (email) y permitir el acuse de recibo de alertas. | Could | Arq. v2.1 §3.4 |
+
+**MLOps (`mlops-service`)**
+
+| ID | Requerimiento | Prioridad | Origen |
+|----|---------------|-----------|--------|
+| **RF-ML-001** | El `mlops-service` debe proveer un **módulo de anotación propio** (API + UI en la SPA) para el etiquetado fonémico del corpus, con escala ordinal de tres opciones y fonema producido. **Se descarta Label Studio.** | Should | Arq. v2.1 §5.2 (reingeniería) |
+| **RF-ML-002** | El servicio debe gestionar el corpus (alta de audios por upload o captura supervisada), la asignación multi-anotador y el cálculo de IRR (Cohen kappa). | Should | Esquema `mlops`, Arq. v2.1 §5 |
+| **RF-ML-003** | El servicio debe gestionar el ciclo de vida de los modelos con **MLflow** (registry, métricas, artefactos) y el versionado de datasets con **DVC**. | Should | Arq. v2.1 §5.4, §5.3 |
+| **RF-ML-004** | El servicio debe publicar `ModelPromoted` al promover un modelo a producción para que `scoring-service` actualice su modelo activo. | Should | Arq. v2.1 §5.4 |
+
+**Integración y eventos (objetivo)**
+
+| ID | Requerimiento | Prioridad | Origen |
+|----|---------------|-----------|--------|
+| **RF-EV-007** | El bus de eventos debe soportar el contrato v2.1: `AttemptCreated`, `AttemptScored`, `AttemptFailed`, `PrescriptionUpdated`, `AlertRaised`, `ModelPromoted`, `CorpusConsentRevoked`. | Should | Arq. v2.1 §3.6, `Planificacion-Futura.md` §6 |
+| **RF-EV-008** | Todos los consumidores de eventos deben ser idempotentes mediante una tabla `processed_events` por esquema. | Should | Arq. v2.1 §4.3 |
 
 ---
 
@@ -264,9 +300,10 @@ constituyen el **backlog** de la plataforma.
 | API Gateway (Traefik) | — | COM-001, COM-002 | Implementado |
 | Persistencia (PostgreSQL) | — | SEC-007, PER-001, ESC-002 | Implementado |
 | Object storage (MinIO) | RF-SC-002 (parcial) | PER-003, COM-003 | Provisto |
-| `scoring-service` | RF-SC-001, RF-SC-002 | — | Pendiente |
-| `analytics-service` | RF-AN-001 | — | Pendiente |
-| `mlops-service` | RF-ML-001 | — | Pendiente |
+| `scoring-service` | RF-SC-001 … RF-SC-006 | — | Pendiente |
+| `analytics-service` | RF-AN-001 … RF-AN-003 | — | Pendiente |
+| `mlops-service` | RF-ML-001 … RF-ML-004 | — | Pendiente |
+| Bus de eventos (objetivo) | RF-EV-007, RF-EV-008 | PER-002, REL-004 | Pendiente |
 
 ---
 
@@ -282,6 +319,8 @@ análisis del código que impactan requerimientos no funcionales.
 | 3 | Lógica común (validación JWT, `config`, `database`) duplicada por copia en cada servicio. | RNF-MNT-001 | Extraer una librería compartida (*core*) versionada. |
 | 4 | El esquema se crea con `create_all()`; Alembic está declarado pero inactivo. | RNF-MNT-005 | Adoptar migraciones versionadas para cambios de esquema controlados. |
 | 5 | La autorización es incompleta: se valida la autenticidad del *token* pero no se verifica el rol en la mayoría de los *endpoints*. | RNF-SEC-006 | Incorporar control de acceso basado en roles (RBAC) en los *endpoints* sensibles. |
+| 6 | El JWT se firma con **HS256 y clave compartida**: todos los servicios conocen el secreto de firma, ampliando la superficie de compromiso. | RNF-SEC-002 | Migrar a **RS256 + JWKS** (clave privada solo en `identity-service`, pública distribuida). Arq. v2.1 §3.1. |
+| 7 | **Label Studio** figura en el `docker-compose.yml` como herramienta de anotación externa (contenedor, tablas propias, modelo de usuarios duplicado). | RNF-MNT-001 | **Reingeniería v2.1:** reemplazar por un módulo de anotación propio en `mlops-service` + la SPA; retirar el contenedor. Arq. v2.1 §5.2. |
 
 ---
 
