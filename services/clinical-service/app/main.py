@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi import FastAPI, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session as DBSession
 from typing import List
 from uuid import UUID
@@ -62,6 +62,18 @@ def create_patient(payload: PatientCreate, db: DBSession = Depends(get_db)):
     return patient
 
 
+@app.get("/patients/me", response_model=PatientResponse)
+def get_my_patient_record(
+    db: DBSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Resuelve el paciente a partir del JWT: el cliente sólo conoce su user_id."""
+    patient = db.query(Patient).filter(Patient.user_id == user_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    return patient
+
+
 @app.get("/patients/{patient_id}", response_model=PatientResponse)
 def get_patient(patient_id: UUID, db: DBSession = Depends(get_db)):
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
@@ -105,6 +117,16 @@ def get_my_patients(
 
 # ── Therapy plans ─────────────────────────────────────────────────────────────
 
+@app.get("/therapy-plans", response_model=List[TherapyPlanResponse])
+def list_therapy_plans(
+    patient_id: UUID = Query(..., description="Paciente cuyos planes se listan"),
+    db: DBSession = Depends(get_db),
+):
+    return db.query(TherapyPlan).filter(
+        TherapyPlan.patient_id == patient_id
+    ).order_by(TherapyPlan.start_date.desc()).all()
+
+
 @app.post("/therapy-plans", response_model=TherapyPlanResponse, status_code=201)
 def create_therapy_plan(payload: TherapyPlanCreate, db: DBSession = Depends(get_db)):
     plan = TherapyPlan(**payload.model_dump())
@@ -142,6 +164,15 @@ def create_exercise(payload: ExerciseCreate, db: DBSession = Depends(get_db)):
     return exercise
 
 
+@app.get("/exercises/{exercise_id}/versions", response_model=List[ExerciseVersionResponse])
+def list_exercise_versions(exercise_id: UUID, db: DBSession = Depends(get_db)):
+    if not db.query(Exercise).filter(Exercise.id == exercise_id).first():
+        raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
+    return db.query(ExerciseVersion).filter(
+        ExerciseVersion.exercise_id == exercise_id
+    ).order_by(ExerciseVersion.version.desc()).all()
+
+
 @app.post("/exercises/{exercise_id}/versions", response_model=ExerciseVersionResponse, status_code=201)
 def create_exercise_version(exercise_id: UUID, payload: ExerciseVersionCreate, db: DBSession = Depends(get_db)):
     if not db.query(Exercise).filter(Exercise.id == exercise_id).first():
@@ -154,6 +185,25 @@ def create_exercise_version(exercise_id: UUID, payload: ExerciseVersionCreate, d
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
+
+@app.get("/sessions", response_model=List[SessionResponse])
+def list_sessions(
+    patient_id: UUID = Query(..., description="Paciente cuyas sesiones se listan"),
+    db: DBSession = Depends(get_db),
+):
+    return db.query(TherapySession).filter(
+        TherapySession.patient_id == patient_id
+    ).order_by(TherapySession.started_at.desc()).all()
+
+
+@app.get("/sessions/{session_id}/attempts", response_model=List[AttemptResponse])
+def list_session_attempts(session_id: UUID, db: DBSession = Depends(get_db)):
+    if not db.query(TherapySession).filter(TherapySession.id == session_id).first():
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    return db.query(Attempt).filter(
+        Attempt.session_id == session_id
+    ).order_by(Attempt.submitted_at.desc()).all()
+
 
 @app.post("/sessions", response_model=SessionResponse, status_code=201)
 def create_session(payload: SessionCreate, db: DBSession = Depends(get_db)):
